@@ -19,6 +19,10 @@ def vecdif(u, dt):
 def test_differentiate():
 	return t**2
 
+dt = 0.1
+T = 4
+t = linspace(0, T, T/dt+1)
+
 print differentiate(test_differentiate(), dt)
 print vecdif(test_differentiate(), dt)
 

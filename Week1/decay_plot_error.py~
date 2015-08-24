@@ -1,0 +1,87 @@
+from numpy import *
+from pylab import *
+
+#FE
+#du[i] = (u[i+1]-u[i])/dt
+
+def FE(I, a, T, dt):
+	dt = float(dt)
+	Nt = int(round(T/dt))
+	T = Nt*dt
+	u = zeros(Nt+1)
+	u[0] = I
+	t = linspace(0, T, Nt+1)
+	for i in range(0, Nt):
+		u[i+1] = u[i]*(1 - a*dt)
+	return u, t
+
+#BE
+#du[i+1] = (u[i+1]-u[i])/dt
+#u[i+1] = -a*u[i+1]*dt + u[i]
+#u[i] = u[i+1] + a*u[i+1]*dt
+
+def BE(I, a, T, dt):
+	dt = float(dt)
+	Nt = int(round(T/dt))
+	T = Nt*dt
+	u = zeros(Nt+1)
+	u[0] = I
+	t = linspace(0, T, Nt+1)
+	for i in range(0, Nt):
+		u[i+1] = u[i]/(1 + a*dt)
+	return u, t
+
+#Crank
+#du[i + 1/2] = (u[i+1] - u[i])/dt
+#u[i + 1/2] = 1./2*(u[i+1] + u[i])
+#(u[i+1] - u[i])/dt = -1./2*(u[i+1] + u[i])*a
+#u[i+1]*(1 + 1./2*a*dt) = u[i]*(1 - 1./2*a*dt)
+
+def Crank(I, a, T, dt):
+	dt = float(dt)
+	Nt = int(round(T/dt))
+	T = Nt*dt
+	u = zeros(Nt+1)
+	u[0] = I
+	t = linspace(0, T, Nt+1)
+	for i in range(0, Nt):
+		u[i+1] = (1 - 1./2*a*dt)/(1 + 1./2*a*dt)*u[i]
+	return u, t
+
+def exact(a, t):
+	u_e = exp(-a*t)
+	return u_e
+
+dt = 0.1
+T = 4
+I = 1
+a = 3
+
+for x in [dt, dt/4, dt/8]:
+	u, t = FE(I, a, T, x)
+	u_e = exact(a, t_e)
+	e = u_e - u
+
+	plot(t, e)
+	show()
+
+	u, t = BE(I, a, T, x)
+	e = u_e - u
+
+	plot(t, e)
+	show()
+
+	u, t = Crank(I, a, T, x)
+	e = u_e - u
+
+	plot(t, e)
+	show()
+
+
+
+
+
+
+
+
+

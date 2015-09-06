@@ -61,45 +61,58 @@ def f_d(u_d, b_, w_, n):
     return 2*b_ + w_**2*u_d[n]
 
 def solver(I, w_, dt, T, V_, b_):
-    """
-    Solve u'' + w**2*u = f for t in (0,T], u(0)=I and u'(0)=0,
-    by a central finite difference method with time step dt.
-    """
+
+    #Solves u'' + w**2*u = f with initial conditions u(0)=I and 
+	#u'(0)=V, by a central finite difference method with time step dt.
+
     dt = float(dt)
     Nt = int(round(T/dt))
     u_d = np.zeros(Nt+1)
     t = np.linspace(0, Nt*dt, Nt+1)
-    #f_d = np.linspace(f(0), f(T), Nt+1)
 
     u_d[0] = I
     u_d[1] = u_d[0] - 0.5*dt**2*w_**2*u_d[0]+ dt*V_ + 0.5*dt**2*f_d(u_d, b_, w_, 0)
-    #u_d[1] = u_d[0] - 0.5*dt**2*w_**2*u_d[0]+ dt*V_ + 0.5*dt**2*(2*b_ + w_**2*u_d[0])
+
     for n in range(1, Nt):
         u_d[n+1] = 2*u_d[n] - u_d[n-1] - dt**2*w_**2*u_d[n] + dt**2*f_d(u_d, b_, w_, n)
-        #u_d[n+1] = 2*u_d[n] - u_d[n-1] - dt**2*w_**2*u_d[n] + dt**2*(2*b_ + w_**2*u_d[n])
     return u_d, t
 
 def u_e(t, b_, c_, d_):
-    return b_*t**2 + c_*t + d_
+    return b_*t**2 + c_*t + d_		#Quadratic function for testing.
 
 def nose_test(d_, w_, dt, T, c_, b_):
+
+	#Comparing numerical and exact solutions.
+
     Nt=T/dt
-    t_e = np.linspace(0, T, Nt+1)
+    t_e = np.linspace(0, T, Nt+1) #Timesteps for exact solution.
 
     [u_d, t] = solver(d_, w_, dt, T, c_, b_)
+
+	#Plotting exact and numerical solutions together.
     plt.plot(t, u_d,
-    t_e, u_e(t_e, b_, c_, d_))
+    		t_e, u_e(t_e, b_, c_, d_), 'o')
+    plt.legend(['Numerical', 'Exact'])
+    plt.xlabel('t')
+    plt.ylabel('u(t)')
     plt.show()
 
-    tol = 1E-12
-    error = abs(u_e(t_e, b_, c_, d_) - u_d)#/u_e(t, 1, 1, 1)
+	#Checking that the error is as small as we would expect for 
+	#numerical approximation errors.
+    tol = 1E-14
+    error = abs(u_e(t_e, b_, c_, d_) - u_d)
     assert error.max() < tol
+
+	#Plorring the error ass a function of time.
     plt.plot(t_e, error)
+    plt.legend(['Error'])
+    plt.xlabel('t')
+    plt.ylabel('Error')
     plt.show()
 
 if __name__ == '__main__':
     linear()
     quadratic()
     cubic()
-    nose_test(1, 1, 0.1, 10, 1, 1)
+    nose_test(1, 1, 0.1, 2, 1, 1)
 

@@ -43,15 +43,28 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
     Nx = int(round(L/dx))
     x = np.linspace(0, L, Nx+1)          # Mesh points in space
 
-    # Treat c(x) as array
-    if isinstance(c, (float,int)):
-        c = np.zeros(x.shape) + c
-    elif callable(c):
-        # Call c(x) and fill array c
-        c_ = np.zeros(x.shape)
-        for i in range(Nx+1):
-            c_[i] = c(x[i])
-        c = c_
+    if approx == "GhostCell":
+        # Treat c(x) as array
+        if isinstance(c, (float,int)):
+            c = np.zeros(x.shape) + c
+        elif callable(c):
+            # Call c(x) and fill array c
+            c_ = np.zeros(x.shape[0]+2)
+            for i in range(Nx+1):
+                c_[i+1] = c(x[i])
+            #Fixing the ghost cells, when assuming dq/dc=0
+            c = c_
+            c[0] = c[1]
+            c[-1] = c[-2]
+    else:
+        if isinstance(c, (float,int)):
+            c = np.zeros(x.shape) + c
+        elif callable(c):
+            # Call c(x) and fill array c
+            c_ = np.zeros(x.shape)
+            for i in range(Nx+1):
+                c_[i] = c(x[i])
+            c = c_
 
     q = c**2
     C2 = (dt/dx)**2; dt2 = dt*dt    # Help variables in the scheme
@@ -86,202 +99,305 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
         # Simulation is already run
         return -1, hashed_input
     '''
-    u   = np.zeros(Nx+1)   # Solution array at new time level
-    u_1 = np.zeros(Nx+1)   # Solution at 1 time level back
-    u_2 = np.zeros(Nx+1)   # Solution at 2 time levels back
-
+    
     import time;  t0 = time.clock()  # CPU time measurement
 
-    Ix = range(0, Nx+1)
-    It = range(0, Nt+1)
-
-    # Load initial condition into u_1
-    for i in range(0,Nx+1):
-        u_1[i] = I(x[i])
-
-    if user_action is not None:
-        user_action(u_1, x, t, 0)
-
-    # Special formula for the first step
-    for i in Ix[1:-1]:
-        u[i] = u_1[i] + dt*V(x[i]) + \
-        0.5*C2*(0.5*(q[i] + q[i+1])*(u_1[i+1] - u_1[i]) - \
-                0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1])) + \
-        0.5*dt2*f(x[i], t[0])
-
-    if approx == "Approx":
-        i = Ix[0]
-        if U_0 is None:
-            # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
-            # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
-            ip1 = i+1
-            im1 = ip1  # i-1 -> i+1
-            u[i] = u_1[i] + dt*V(x[i]) + \
-                   C2*q[i]*(u_1[im1] - u_1[i]) + 0.5*dt2*f(x[i], t[0])
-        else:
-            u[i] = U_0(dt)
-
-        i = Ix[-1]
-        if U_L is None:
-            im1 = i-1
-            ip1 = im1  # i+1 -> i-1
-            u[i] = u_1[i] + dt*V(x[i]) + \
-                   C2*q[i]*(u_1[im1] - u_1[i]) + 0.5*dt2*f(x[i], t[0])
-        else:
-            u[i] = U_L(dt)
-    elif approx == "Standard":
+    if approx == "GhostCell": #Using the ghost cell scheme.
+        """The part of the solver function that takes 
+        care of the initialization and the formula for 
+        the first step when using the ghost cells scheme 
+        (exercise d)."""    
     
-        i = Ix[0]
-        if U_0 is None:
-            # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
-            # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
-            ip1 = i+1
-            im1 = ip1  # i-1 -> i+1
-            u[i] = u_1[i] + dt*V(x[i]) + \
-               0.5*C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])  - \
-                       0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])) + \
-                0.5*dt2*f(x[i], t[0])
-        else:
-            u[i] = U_0(dt)
+        #Two extra elements for the ghost cells in the u arrays: 
+        u   = np.zeros(Nx+3)   # Solution array at new time level
+        u_1 = np.zeros(Nx+3)   # Solution at 1 time level back
+        u_2 = np.zeros(Nx+3)   # Solution at 2 time levels back
 
-        i = Ix[-1]
-        if U_L is None:
-            im1 = i-1
-            ip1 = im1  # i+1 -> i-1
-            u[i] = u_1[i] + dt*V(x[i]) + \
-               0.5*C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])  - \
-                       0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])) + \
-                0.5*dt2*f(x[i], t[0])
-        else:
-            u[i] = U_L(dt)
-            
-    elif approx == "OneSided":
+        Ix = range(1, u.shape[0]-1)
+        It = range(0, t.shape[0])
         
+        # Load initial condition into u_1
+        for i in Ix:
+            #The index for x is transformed due to the 
+            #ghost cells making u larger:
+            u_1[i] = I(x[i-Ix[0]]) 
+        
+        #Ghost cell values set for du/dx = 0:
         i = Ix[0]
-        if U_0 is None:
-            # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
-            # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
-            ip1 = i+1
-            im1 = ip1  # i-1 -> i+1
-            u[i] = u_1[i] + dt*V(x[i]) - \
-               0.5*C2*0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]) + \
-                0.5*dt2*f(x[i], t[0])
-        else:
-            u[i] = U_0(dt)
-
+        u_1[i-1] = u_1[i+1]
         i = Ix[-1]
-        if U_L is None:
-            im1 = i-1
-            ip1 = im1  # i+1 -> i-1
-            u[i] = u_1[i] + dt*V(x[i]) + \
-               0.5*C2*0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i]) + \
-                0.5*dt2*f(x[i], t[0])
-        else:
-            u[i] = U_L(dt)
-    
-    if user_action is not None:
-        user_action(u, x, t, 1)
+        u_1[i+1] = u_1[i-1]
+        
+        if user_action is not None:
+            #Excluding the ghost cell elements in u when 
+            #calling user_action:
+            user_action(u_1[Ix[0]:Ix[-1]+1], x, t, 0)
+        
+        #Special formula for the first step    
+        for i in Ix:
+            u[i] = u_1[i] + dt*V(x[i-Ix[0]]) + \
+                   0.5*C2*(0.5*(q[i] + q[i+1])*(u_1[i+1] - u_1[i])\
+                          -0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1]))\
+                  +0.5*dt2*f(x[i-Ix[0]], t[0])
+        
+        #Ghost cell values set for du/dx = 0:          
+        i = Ix[0]
+        u[i-1] = u[i+1]
+        i = Ix[-1]
+        u[i+1] = u[i-1]
+        
+        if user_action is not None:
+            #Excluding the ghost cell elements in u when 
+            #calling user_action:
+            user_action(u[Ix[0]:Ix[-1]+1], x, t, 1)
 
-    # Update data structures for next step
+    else:
+        """The part of the solver function that takes 
+        care of the initialization and the formula for 
+        the first step when not using the ghost cells scheme 
+        (exercise a,b,c)."""
+    
+        u   = np.zeros(Nx+1)   # Solution array at new time level
+        u_1 = np.zeros(Nx+1)   # Solution at 1 time level back
+        u_2 = np.zeros(Nx+1)   # Solution at 2 time levels back
+    
+        Ix = range(0, Nx+1)
+        It = range(0, Nt+1)
+
+        # Load initial condition into u_1
+        for i in range(0,Nx+1):
+            u_1[i] = I(x[i])
+
+        if user_action is not None:
+            user_action(u_1, x, t, 0)
+
+        # Special formula for the first step
+        for i in Ix[1:-1]:
+            u[i] = u_1[i] + dt*V(x[i]) + \
+            0.5*C2*(0.5*(q[i] + q[i+1])*(u_1[i+1] - u_1[i]) - \
+                    0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1])) + \
+            0.5*dt2*f(x[i], t[0])
+
+        if approx == "Approx": #Using eq(54) in the lecture notes.
+            i = Ix[0]
+            if U_0 is None:
+                # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
+                # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
+                ip1 = i+1
+                im1 = ip1  # i-1 -> i+1
+                u[i] = u_1[i] + dt*V(x[i]) + \
+                       C2*q[i]*(u_1[im1] - u_1[i]) + 0.5*dt2*f(x[i], t[0])
+            else:
+                u[i] = U_0(dt)
+
+            i = Ix[-1]
+            if U_L is None:
+                im1 = i-1
+                ip1 = im1  # i+1 -> i-1
+                u[i] = u_1[i] + dt*V(x[i]) + \
+                       C2*q[i]*(u_1[im1] - u_1[i]) + 0.5*dt2*f(x[i], t[0])
+            else:
+                u[i] = U_L(dt)
+        elif approx == "Standard": #Using eq(57) in the 
+                                   #lecture notes.
+    
+            i = Ix[0]
+            if U_0 is None:
+                # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
+                # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
+                ip1 = i+1
+                im1 = ip1  # i-1 -> i+1
+                u[i] = u_1[i] + dt*V(x[i]) + \
+                   0.5*C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])\
+                          -0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]))\
+                  +0.5*dt2*f(x[i], t[0])
+            else:
+                u[i] = U_0(dt)
+
+            i = Ix[-1]
+            if U_L is None:
+                im1 = i-1
+                ip1 = im1  # i+1 -> i-1
+                u[i] = u_1[i] + dt*V(x[i]) + \
+                    0.5*C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])\
+                           -0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]))\
+                   +0.5*dt2*f(x[i], t[0])
+            else:
+                u[i] = U_L(dt)
+            
+        elif approx == "OneSided": #Using the one sided scheme.
+        
+            i = Ix[0]
+            if U_0 is None:
+                # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
+                # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
+                ip1 = i+1
+                im1 = ip1  # i-1 -> i+1
+                u[i] = u_1[i] + dt*V(x[i])\
+                    -0.5*C2*0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])\
+                    +0.5*dt2*f(x[i], t[0])
+            else:
+                u[i] = U_0(dt)
+
+            i = Ix[-1]
+            if U_L is None:
+                im1 = i-1
+                ip1 = im1  # i+1 -> i-1
+                u[i] = u_1[i] + dt*V(x[i])\
+                   +0.5*C2*0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])\
+                   +0.5*dt2*f(x[i], t[0])
+            else:
+                u[i] = U_L(dt)
+    
+        if user_action is not None:
+            user_action(u, x, t, 1)
+
+    # Update data structures for next step.
+    # This works the same for all of the schemes.
     #u_2[:] = u_1;  u_1[:] = u  # safe, but slower
     u_2, u_1, u = u_1, u, u_2
 
-    for n in It[1:-1]:
-        # Update all inner points
-        if version == 'scalar':
-            for i in Ix[1:-1]:
-                u[i] = - u_2[i] + 2*u_1[i] + \
-                    C2*(0.5*(q[i] + q[i+1])*(u_1[i+1] - u_1[i])  - \
-                        0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1])) + \
-                dt2*f(x[i], t[n])
 
-        elif version == 'vectorized':
-            u[1:-1] = - u_2[1:-1] + 2*u_1[1:-1] + \
-            C2*(0.5*(q[1:-1] + q[2:])*(u_1[2:] - u_1[1:-1]) -
-                0.5*(q[1:-1] + q[:-2])*(u_1[1:-1] - u_1[:-2])) + \
-            dt2*f(x[1:-1], t[n])
-        else:
-            raise ValueError('version=%s' % version)
+    if approx == "GhostCell":
+        """The part of the solver function that takes 
+        care of updating the inner points when using the 
+        ghost cells scheme (exercise d)."""
+        for n in range(1, Nt):
+            # Update all inner points
+            if version == 'scalar':
+                for i in Ix:
+                    u[i] = - u_2[i] + 2*u_1[i]+\
+                      C2*(0.5*(q[i] + q[i+1])*(u_1[i+1] - u_1[i])-\
+                          0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1]))+\
+                      dt2*f(x[i-Ix[0]], t[n])
 
-        # Insert boundary conditions
-        if approx == "Approx":
+            elif version == 'vectorized':
+                u[1:-1] = - u_2[1:-1] + 2*u_1[1:-1] + \
+                C2*(0.5*(q[1:-1] + q[2:])*(u_1[2:] - u_1[1:-1])\
+                   -0.5*(q[1:-1] + q[:-2])*(u_1[1:-1] - u_1[:-2]))\
+               +dt2*f(x, t[n])
+            else:
+                raise ValueError('version=%s' % version)
+            
+            #Ghost cell values set for du/dx = 0:    
             i = Ix[0]
-            if U_0 is None:
-                # Set boundary values
-                # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
-                # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
-                ip1 = i+1
-                im1 = ip1
-                u[i] = - u_2[i] + 2*u_1[i] + \
-                   C2*2*q[i]*(u_1[ip1] - u_1[i]) + dt2*f(x[i], t[n])
-            else:
-                u[i] = U_0(t[n+1])
-
+            u[i-1] = u[i+1]
             i = Ix[-1]
-            if U_L is None:
-                im1 = i-1
-                ip1 = im1
-                u[i] = - u_2[i] + 2*u_1[i] + \
-                   C2*2*q[i]*(u_1[im1] - u_1[i]) + dt2*f(x[i], t[n])
-            else:
-                u[i] = U_L(t[n+1])     
-        elif approx == "Standard":
-            i = Ix[0]
-            if U_0 is None:
-                # Set boundary values
-                # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
-                # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
-                ip1 = i+1
-                im1 = ip1
-                u[i] = - u_2[i] + 2*u_1[i] + \
-                   C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])  - \
-                       0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])) + \
-                dt2*f(x[i], t[n])
-            else:
-                u[i] = U_0(t[n+1])
+            u[i+1] = u[i-1]
+            
+            if user_action is not None:
+                #Excluding the ghost cell elements in u when 
+                #calling user_action:
+                if user_action(u[Ix[0]:Ix[-1]+1], x, t, n+1):
+                    break
+                    
+            # Update data structures for next step
+            #u_2[:] = u_1;  u_1[:] = u  # safe, but slower        
+            u_2, u_1, u = u_1, u, u_2
+    else:
+        """The part of the solver function that takes 
+        care of updating the inner points when not using 
+        the ghost cells scheme (exercise a,b,c)."""
+        for n in It[1:-1]:
+            # Update all inner points
+            if version == 'scalar':
+                for i in Ix[1:-1]:
+                    u[i] = - u_2[i] + 2*u_1[i]+\
+                      C2*(0.5*(q[i] + q[i+1])*(u_1[i+1] - u_1[i])-\
+                          0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1]))+\
+                      dt2*f(x[i], t[n])
 
-            i = Ix[-1]
-            if U_L is None:
-                im1 = i-1
-                ip1 = im1
-                u[i] = - u_2[i] + 2*u_1[i] + \
-                   C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])  - \
-                       0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])) + \
-                dt2*f(x[i], t[n])
+            elif version == 'vectorized':
+                u[1:-1] = - u_2[1:-1] + 2*u_1[1:-1] + \
+                C2*(0.5*(q[1:-1] + q[2:])*(u_1[2:] - u_1[1:-1])\
+                   -0.5*(q[1:-1] + q[:-2])*(u_1[1:-1] - u_1[:-2]))\
+               +dt2*f(x[1:-1], t[n])
             else:
-                u[i] = U_L(t[n+1])
+                raise ValueError('version=%s' % version)
+
+            # Insert boundary conditions
+            if approx == "Approx": 
+                #Using eq(54) in the lecture notes.
+                i = Ix[0]
+                if U_0 is None:
+                    # Set boundary values
+                    # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
+                    # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
+                    ip1 = i+1
+                    im1 = ip1
+                    u[i] = - u_2[i] + 2*u_1[i] + \
+                       C2*2*q[i]*(u_1[ip1] - u_1[i]) + dt2*f(x[i], t[n])
+                else:
+                    u[i] = U_0(t[n+1])
+
+                i = Ix[-1]
+                if U_L is None:
+                    im1 = i-1
+                    ip1 = im1
+                    u[i] = - u_2[i] + 2*u_1[i] + \
+                       C2*2*q[i]*(u_1[im1] - u_1[i]) + dt2*f(x[i], t[n])
+                else:
+                    u[i] = U_L(t[n+1])
+                         
+            elif approx == "Standard":
+                #Using eq(57) in the lecture notes.
+                i = Ix[0]
+                if U_0 is None:
+                    # Set boundary values
+                    # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
+                    # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
+                    ip1 = i+1
+                    im1 = ip1
+                    u[i] = - u_2[i] + 2*u_1[i] + \
+                       C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])\
+                          -0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]))\
+                      +dt2*f(x[i], t[n])
+                else:
+                    u[i] = U_0(t[n+1])
+
+                i = Ix[-1]
+                if U_L is None:
+                    im1 = i-1
+                    ip1 = im1
+                    u[i] = - u_2[i] + 2*u_1[i] + \
+                       C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])\
+                          -0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]))\
+                      +dt2*f(x[i], t[n])
+                else:
+                    u[i] = U_L(t[n+1])
                 
-        elif approx == "OneSided":
-            i = Ix[0]
-            if U_0 is None:
-                # Set boundary values
-                # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
-                # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
-                ip1 = i+1
-                im1 = ip1
-                u[i] = - u_2[i] + 2*u_1[i] - \
-                   C2*0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]) + \
-                dt2*f(x[i], t[n])
-            else:
-                u[i] = U_0(t[n+1])
+            elif approx == "OneSided":
+                #Using the one sided scheme.
+                i = Ix[0]
+                if U_0 is None:
+                    # Set boundary values
+                    # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
+                    # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
+                    ip1 = i+1
+                    im1 = ip1
+                    u[i] = - u_2[i] + 2*u_1[i] - \
+                       C2*0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])\
+                      +dt2*f(x[i], t[n])
+                else:
+                    u[i] = U_0(t[n+1])
 
-            i = Ix[-1]
-            if U_L is None:
-                im1 = i-1
-                ip1 = im1
-                u[i] = - u_2[i] + 2*u_1[i] + \
-                   C2*0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i]) + \
-                dt2*f(x[i], t[n])
-            else:
-                u[i] = U_L(t[n+1])
+                i = Ix[-1]
+                if U_L is None:
+                    im1 = i-1
+                    ip1 = im1
+                    u[i] = - u_2[i] + 2*u_1[i] + \
+                        C2*0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])\
+                       +dt2*f(x[i], t[n])
+                else:
+                    u[i] = U_L(t[n+1])
 
-        if user_action is not None:
-            if user_action(u, x, t, n+1):
-                break
+            if user_action is not None:
+                if user_action(u, x, t, n+1):
+                    break
 
-        # Update data structures for next step
-        #u_2[:] = u_1;  u_1[:] = u  # safe, but slower
-        u_2, u_1, u = u_1, u, u_2
+            # Update data structures for next step
+            #u_2[:] = u_1;  u_1[:] = u  # safe, but slower
+            u_2, u_1, u = u_1, u, u_2
 
     # Important to correct the mathematically wrong u=u_2 above
     # before returning u
@@ -451,9 +567,7 @@ class PlotAndStoreSolution:
         # Animate
         L=1.
         u_exact = lambda x, t: np.cos(np.pi*x/L)*np.cos(t)
-        u_e = u_exact(x, t[n])
-        diff = np.abs(u - u_exact(x,t[n])).max()
-        tol = 1E-13
+        #diff = np.abs(u - u_exact(x,t[n])).max()
         #print diff
         if n % self.skip_frame != 0:
             return
@@ -464,6 +578,7 @@ class PlotAndStoreSolution:
             # native matplotlib animation
             if n == 0:
                 self.plt.ion()
+                #Edit note: plotting both numerical and exact.
                 self.lines = self.plt.plot(x, u, 'r-',
                                             x, u_exact(x,t[n]))
                 self.plt.axis([x[0], x[-1],
@@ -479,6 +594,7 @@ class PlotAndStoreSolution:
                 self.plt.draw()
         else:
             # scitools.easyviz animation
+            #Edit note: plotting both numerical and exact.
             self.plt.plot(x, u, 'r-',
                             x, u_exact(x,t[n]),
                           xlabel='x', ylabel='u',
@@ -652,6 +768,7 @@ class PlotMediumAndSolution(PlotAndStoreSolution):
             # native matplotlib animation
             if n == 0:
                 self.plt.ion()
+                #Edit note: plotting both numerical and exact.
                 self.lines = self.plt.plot(
                     x, u, 'r-',
                     x, u_exact(x, t[n])

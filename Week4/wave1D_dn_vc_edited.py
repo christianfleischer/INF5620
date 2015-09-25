@@ -29,7 +29,7 @@ import numpy as np
 
 def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
            user_action=None, version='scalar',
-           stability_safety_factor=1.0, approx=False):
+           stability_safety_factor=1.0, approx="Standard"):
     """Solve u_tt=(c^2*u_x)_x + f on (0,L)x(0,T]."""
     Nt = int(round(T/dt))
     t = np.linspace(0, Nt*dt, Nt+1)      # Mesh points in time
@@ -109,30 +109,76 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
                 0.5*(q[i] + q[i-1])*(u_1[i] - u_1[i-1])) + \
         0.5*dt2*f(x[i], t[0])
 
-    i = Ix[0]
-    if U_0 is None:
-        # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
-        # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
-        ip1 = i+1
-        im1 = ip1  # i-1 -> i+1
-        u[i] = u_1[i] + dt*V(x[i]) + \
+    if approx == "Approx":
+        i = Ix[0]
+        if U_0 is None:
+            # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
+            # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
+            ip1 = i+1
+            im1 = ip1  # i-1 -> i+1
+            u[i] = u_1[i] + dt*V(x[i]) + \
+                   C2*q[i]*(u_1[im1] - u_1[i]) + 0.5*dt2*f(x[i], t[0])
+        else:
+            u[i] = U_0(dt)
+
+        i = Ix[-1]
+        if U_L is None:
+            im1 = i-1
+            ip1 = im1  # i+1 -> i-1
+            u[i] = u_1[i] + dt*V(x[i]) + \
+                   C2*q[i]*(u_1[im1] - u_1[i]) + 0.5*dt2*f(x[i], t[0])
+        else:
+            u[i] = U_L(dt)
+    elif approx == "Standard":
+    
+        i = Ix[0]
+        if U_0 is None:
+            # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
+            # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
+            ip1 = i+1
+            im1 = ip1  # i-1 -> i+1
+            u[i] = u_1[i] + dt*V(x[i]) + \
                0.5*C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])  - \
                        0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])) + \
-        0.5*dt2*f(x[i], t[0])
-    else:
-        u[i] = U_0(dt)
+                0.5*dt2*f(x[i], t[0])
+        else:
+            u[i] = U_0(dt)
 
-    i = Ix[-1]
-    if U_L is None:
-        im1 = i-1
-        ip1 = im1  # i+1 -> i-1
-        u[i] = u_1[i] + dt*V(x[i]) + \
+        i = Ix[-1]
+        if U_L is None:
+            im1 = i-1
+            ip1 = im1  # i+1 -> i-1
+            u[i] = u_1[i] + dt*V(x[i]) + \
                0.5*C2*(0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i])  - \
                        0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1])) + \
-        0.5*dt2*f(x[i], t[0])
-    else:
-        u[i] = U_L(dt)
+                0.5*dt2*f(x[i], t[0])
+        else:
+            u[i] = U_L(dt)
+            
+    elif approx == "OneSided":
+        
+        i = Ix[0]
+        if U_0 is None:
+            # Set boundary values (x=0: i-1 -> i+1 since u[i-1]=u[i+1]
+            # when du/dn = 0, on x=L: i+1 -> i-1 since u[i+1]=u[i-1])
+            ip1 = i+1
+            im1 = ip1  # i-1 -> i+1
+            u[i] = u_1[i] + dt*V(x[i]) - \
+               0.5*C2*0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]) + \
+                0.5*dt2*f(x[i], t[0])
+        else:
+            u[i] = U_0(dt)
 
+        i = Ix[-1]
+        if U_L is None:
+            im1 = i-1
+            ip1 = im1  # i+1 -> i-1
+            u[i] = u_1[i] + dt*V(x[i]) + \
+               0.5*C2*0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i]) + \
+                0.5*dt2*f(x[i], t[0])
+        else:
+            u[i] = U_L(dt)
+    
     if user_action is not None:
         user_action(u, x, t, 1)
 
@@ -158,7 +204,7 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
             raise ValueError('version=%s' % version)
 
         # Insert boundary conditions
-        if approx == True:
+        if approx == "Approx":
             i = Ix[0]
             if U_0 is None:
                 # Set boundary values
@@ -179,7 +225,7 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
                    C2*2*q[i]*(u_1[im1] - u_1[i]) + dt2*f(x[i], t[n])
             else:
                 u[i] = U_L(t[n+1])     
-        else:
+        elif approx == "Standard":
             i = Ix[0]
             if U_0 is None:
                 # Set boundary values
@@ -204,6 +250,30 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
                 dt2*f(x[i], t[n])
             else:
                 u[i] = U_L(t[n+1])
+                
+        elif approx == "OneSided":
+            i = Ix[0]
+            if U_0 is None:
+                # Set boundary values
+                # x=0: i-1 -> i+1 since u[i-1]=u[i+1] when du/dn=0
+                # x=L: i+1 -> i-1 since u[i+1]=u[i-1] when du/dn=0
+                ip1 = i+1
+                im1 = ip1
+                u[i] = - u_2[i] + 2*u_1[i] - \
+                   C2*0.5*(q[i] + q[im1])*(u_1[i] - u_1[im1]) + \
+                dt2*f(x[i], t[n])
+            else:
+                u[i] = U_0(t[n+1])
+
+            i = Ix[-1]
+            if U_L is None:
+                im1 = i-1
+                ip1 = im1
+                u[i] = - u_2[i] + 2*u_1[i] + \
+                   C2*0.5*(q[i] + q[ip1])*(u_1[ip1] - u_1[i]) + \
+                dt2*f(x[i], t[n])
+            else:
+                u[i] = U_L(t[n+1])
 
         if user_action is not None:
             if user_action(u, x, t, n+1):
@@ -219,7 +289,7 @@ def solver(I, V, f, c, U_0, U_L, L, dt, C, T,
     cpu_time = t0 - time.clock()
     return t, cpu_time#, hashed_input
 
-
+'''
 def test_quadratic():
     """
     Check the scalar and vectorized versions work for
@@ -253,7 +323,8 @@ def test_quadratic():
     solver(I, V, f, c, U_0, U_L, L/2, dt, C, T,
            user_action=assert_no_error, version='vectorized',
            stability_safety_factor=1)
-
+'''
+'''
 def test_plug():
     """Check that an initial plug is correct back after one period."""
     L = 1.
@@ -287,7 +358,8 @@ def test_plug():
     u_0 = np.array([I(x_) for x_ in action.x])
     diff = np.abs(u_s - u_0).max()
     assert diff < tol
-
+'''
+'''
 def merge_zip_archives(individual_archives, archive_name):
     """
     Merge individual zip archives made with numpy.savez into
@@ -317,7 +389,7 @@ def merge_zip_archives(individual_archives, archive_name):
         f.close()
         os.remove(filename)
     archive.close()
-
+'''
 class PlotAndStoreSolution:
     """
     Class for the user_action function in solver.
@@ -382,7 +454,7 @@ class PlotAndStoreSolution:
         u_e = u_exact(x, t[n])
         diff = np.abs(u - u_exact(x,t[n])).max()
         tol = 1E-13
-        print diff
+        #print diff
         if n % self.skip_frame != 0:
             return
         title = 't=%.3f' % t[n]
@@ -476,7 +548,7 @@ class PlotAndStoreSolution:
 	    print 'Archive name:', archive_name
             # data = numpy.load(archive); data.files holds names
             # data[name] extract the array
-
+'''
 def demo_BC_plug(C=1, Nx=40, T=4):
     """Demonstrate u=0 and u_x=0 boundary conditions with a plug."""
     action = PlotAndStoreSolution(
@@ -495,7 +567,8 @@ def demo_BC_plug(C=1, Nx=40, T=4):
     if cpu > 0:  # did we generate new data?
         action.close_file(hashed_input)
     print 'cpu:', cpu
-
+'''
+'''
 def demo_BC_gaussian(C=1, Nx=80, T=4):
     """Demonstrate u=0 and u_x=0 boundary conditions with a bell function."""
     # Scaled problem: L=1, c=1, max I=1
@@ -513,7 +586,8 @@ def demo_BC_gaussian(C=1, Nx=80, T=4):
     action.make_movie_file()
     if cpu > 0:  # did we generate new data?
         action.close_file(hashed_input)
-
+'''
+'''
 def moving_end(C=1, Nx=50, reflecting_right_boundary=True,
                version='vectorized'):
     # Scaled problem: L=1, c=1, max I=1
@@ -546,7 +620,7 @@ def moving_end(C=1, Nx=50, reflecting_right_boundary=True,
     action.make_movie_file()
     if cpu > 0:  # did we generate new data?
         action.close_file(hashed_input)
-
+'''
 
 class PlotMediumAndSolution(PlotAndStoreSolution):
     def __init__(self, medium, **kwargs):
@@ -620,7 +694,7 @@ def animate_multiple_solutions(*archives):
     a = [load(archive) for archive in archives]
     # Assume the array names are the same in all archives
     raise NotImplementedError  # more to do...
-
+'''
 def pulse(C=1,            # aximum Courant number
           Nx=200,         # spatial resolution
           animate=True,
@@ -693,7 +767,7 @@ def pulse(C=1,            # aximum Courant number
            stability_safety_factor=1)
     action.make_movie_file()
     action.file_close()
-
+'''
 
 
 if __name__ == '__main__':
